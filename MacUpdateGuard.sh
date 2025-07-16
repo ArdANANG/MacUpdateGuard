@@ -1,14 +1,27 @@
 #!/bin/bash
 # ========================================================================
-# MacUpdateGuard v3.9
+# MacUpdateGuard v3.9.1
 # 作者: bili_25396444320 (c) 2025
 # 功能：macOS系统更新管理工具
-# 优化版：2025年7月13日
+# 优化版：2025年7月16日
 # ========================================================================
 
 # -------------------------- 全局配置 ---------------------------
-readonly SCRIPT_VERSION="3.9"
-readonly DEFAULT_DOMAIN_LIST=("swscan.apple.com" "mesu.apple.com" "swdist.apple.com" "swcdn.apple.com" "gdmf.apple.com" "appldnld.apple.com")
+readonly SCRIPT_VERSION="3.9.1"
+readonly DEFAULT_DOMAIN_LIST=(
+    "swscan.apple.com"
+    "mesu.apple.com"
+    "swdist.apple.com"
+    "swcdn.apple.com"
+    "gdmf.apple.com"
+    "appldnld.apple.com"
+    "ioshost.qtlcdn.com"
+)
+
+# 颜色定义
+readonly COLOR_RED='\033[0;31m'
+readonly COLOR_GREEN='\033[0;32m'
+readonly COLOR_NC='\033[0m' # 无颜色
 
 # -------------------------- 初始化状态 -------------------------
 INSTALLED=false
@@ -40,8 +53,8 @@ function main() {
 # -------------------------- 权限管理 --------------------------
 function verify_privileges() {
     if [[ $(id -u) != "0" ]]; then
-        printf "\033[31m错误: 需要管理员权限执行此操作\033[0m\n" >&2
-        printf "请使用: sudo \"%s\"\n" "$0" >&2
+        echo -e "${COLOR_RED}错误: 需要管理员权限执行此操作${COLOR_NC}" >&2
+        echo "请使用: sudo \"$0\"" >&2
         exit 1
     fi
 }
@@ -86,7 +99,6 @@ function auto_install() {
     
     sudo cp "$0" "$INSTALL_PATH"
     sudo chmod +x "$INSTALL_PATH"
-    cd "/Users/$current_user"
     
     echo "安装完成! 位置: $INSTALL_PATH"
     echo "正在启动程序..."
@@ -104,7 +116,7 @@ function disable_system_updates() {
     execute_disable_actions
     
     echo "------------------------------------------------------------"
-    printf "\033[32m系统更新已成功禁用\033[0m\n"
+    echo -e "${COLOR_GREEN}系统更新已成功禁用${COLOR_NC}"
     echo "提示: 重启电脑使设置完全生效"
     
     system_action_menu
@@ -118,7 +130,7 @@ function restore_system_updates() {
     execute_restore_actions
     
     echo "------------------------------------------------------------"
-    printf "\033[32m系统更新功能已成功恢复\033[0m\n"
+    echo -e "${COLOR_GREEN}系统更新功能已成功恢复${COLOR_NC}"
     echo "提示: 重启电脑使设置完全生效"
     
     # 立即刷新系统服务以确保状态更新
@@ -131,12 +143,19 @@ function restore_system_updates() {
 function execute_disable_actions() {
     echo "关闭自动更新计划..."
     sudo softwareupdate --schedule off >/dev/null 2>&1
+    
+    # 增强设置项禁用，彻底解决电源接入后小红点问题
+    echo "禁用所有自动更新选项..."
     sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist AutomaticCheckEnabled -bool FALSE
+    sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist AutomaticDownload -bool FALSE
+    sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist CriticalUpdateInstall -bool FALSE
+    sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist ConfigDataInstall -bool FALSE
+    sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist AutomaticallyInstallMacOSUpdates -bool FALSE
+    sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist AutomaticInstallation -bool FALSE
     
     echo "清理更新缓存文件..."
-    sudo rm -f /Library/Preferences/com.apple.SoftwareUpdate.plist 2>/dev/null
     sudo rm -rf /Library/Caches/com.apple.SoftwareUpdate/ 2>/dev/null
-    sudo find /private/var/folders -name "com.apple.SoftwareUpdate" -maxdepth 5 -exec rm -rf {} + 2>/dev/null
+    sudo find /private/var/folders -name "com.apple.SoftwareUpdate" -exec rm -rf {} + 2>/dev/null
     
     create_hosts_backup
     configure_hosts_block
@@ -148,24 +167,37 @@ function execute_disable_actions() {
     sudo launchctl stop system/com.apple.softwareupdated >/dev/null 2>&1
     sudo launchctl unload -w /System/Library/LaunchDaemons/com.apple.softwareupdated.plist >/dev/null 2>&1
     
-    # 禁用通知服务（解决小红点问题）
-    echo "禁用系统更新通知服务..."
-    sudo launchctl disable system/com.apple.softwareupdate_notifyd
-    sudo launchctl stop system/com.apple.softwareupdate_notifyd
-    sudo launchctl unload -w /System/Library/LaunchDaemons/com.apple.softwareupdate_notifyd.plist >/dev/null 2>&1
-    
-    # 防止电源触发更新
+    # 防止电源触发更新 - 增强解决小红点问题
     echo "禁用电源触发更新..."
     sudo pmset -a powernap 0 >/dev/null 2>&1
     sudo pmset -a womp 0 >/dev/null 2>&1
+    sudo pmset -a darkwakes 0 >/dev/null 2>&1
     
+    # 增强通知系统处理 - 彻底解决小红点问题
     echo "清除系统通知标记..."
     defaults write com.apple.systempreferences AttentionPrefBundleIDs 0
     killall Dock
+    sudo killall usernoted >/dev/null 2>&1
     
     echo "深度清理缓存..."
     sudo rm -rf /Library/Updates/* 2>/dev/null
     sudo rm -f /var/db/softwareupdate/* 2>/dev/null
+    
+    # 彻底清除小红点标记
+    echo "清除小红点标记..."
+    sudo rm -f /var/db/SoftwareUpdate.badge 2>/dev/null
+    sudo rm -f /Library/Preferences/com.apple.preferences.softwareupdate.plist 2>/dev/null
+    sudo rm -f /var/db/softwareupdate/preferences.plist 2>/dev/null
+    sudo rm -f /private/var/db/softwareupdate/preferences.plist 2>/dev/null
+    
+    # 终止所有相关进程 - 确保设置立即生效
+    echo "终止更新服务进程..."
+    sudo killall softwareupdated 2>/dev/null
+    sudo killall softwareupdated_notify_agent 2>/dev/null
+    
+    # 重置软件更新状态
+    echo "重置软件更新状态..."
+    sudo softwareupdate --reset-ignored >/dev/null 2>&1
 }
 
 function execute_restore_actions() {
@@ -174,30 +206,36 @@ function execute_restore_actions() {
     
     echo "启用自动更新计划..."
     sudo softwareupdate --schedule on >/dev/null 2>&1
+    
+    echo "恢复所有更新选项..."
     sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist AutomaticCheckEnabled -bool TRUE
+    sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist AutomaticDownload -bool TRUE
+    sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist CriticalUpdateInstall -bool TRUE
+    sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist ConfigDataInstall -bool TRUE
+    sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist AutomaticallyInstallMacOSUpdates -bool TRUE
+    sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate.plist AutomaticInstallation -bool TRUE
     
     echo "启动更新服务..."
     sudo launchctl enable system/com.apple.softwareupdated >/dev/null 2>&1
     sudo launchctl start system/com.apple.softwareupdated >/dev/null 2>&1
     sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.softwareupdated.plist >/dev/null 2>&1
     
-    # 恢复通知服务
-    echo "恢复系统更新通知服务..."
-    sudo launchctl enable system/com.apple.softwareupdate_notifyd >/dev/null 2>&1
-    sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.softwareupdate_notifyd.plist >/dev/null 2>&1
-    sudo launchctl start system/com.apple.softwareupdate_notifyd >/dev/null 2>&1
-    
     # 恢复电源设置
     echo "恢复电源触发设置..."
     sudo pmset -a powernap 1 >/dev/null 2>&1
     sudo pmset -a womp 1 >/dev/null 2>&1
+    sudo pmset -a darkwakes 1 >/dev/null 2>&1
     
     echo "清理恢复缓存..."
-    sudo rm -f /Library/Preferences/com.apple.SoftwareUpdate.plist 2>/dev/null
     sudo rm -rf /Library/Caches/com.apple.SoftwareUpdate/ 2>/dev/null
     
     # 最后刷新系统服务
     refresh_system_services
+    
+    # 重置更新标记状态
+    echo "重置更新标记状态..."
+    sudo touch /var/db/SoftwareUpdate.badge
+    sudo chmod 644 /var/db/SoftwareUpdate.badge
 }
 
 # -------------------------- 辅助函数 --------------------------
@@ -212,6 +250,7 @@ function restore_hosts_backup() {
     if ls /etc/hosts.bak_* >/dev/null 2>&1; then
         local latest_bak=$(ls -t /etc/hosts.bak_* | head -1)
         sudo cp -f "$latest_bak" /etc/hosts
+        sudo chmod 644 /etc/hosts
         echo "已恢复Hosts备份: ${latest_bak##*/}"
         
         # 确保移除所有屏蔽规则
@@ -224,20 +263,21 @@ function restore_hosts_backup() {
 
 function configure_hosts_block() {
     {
-        printf "\n%s\n" "# 更新屏蔽规则"
+        echo -e "\n# 更新屏蔽规则"
         for domain in "${DEFAULT_DOMAIN_LIST[@]}"; do
-            printf "127.0.0.1 %s\n" "$domain"
+            echo "127.0.0.1 $domain"
         done
     } | sudo tee -a /etc/hosts >/dev/null
+    sudo chmod 644 /etc/hosts
 }
 
 function remove_hosts_block() {
     # 安全地移除屏蔽规则
     if grep -q "# 更新屏蔽规则" /etc/hosts; then
         echo "正在移除Hosts屏蔽规则..."
-        # 计算需要删除的行数（标记行 + 域名行数）
         local lines_to_delete=$(( ${#DEFAULT_DOMAIN_LIST[@]} + 1 ))
         sudo sed -i '' "/# 更新屏蔽规则/,+${lines_to_delete}d" /etc/hosts
+        sudo chmod 644 /etc/hosts
     fi
 }
 
@@ -250,6 +290,9 @@ function refresh_system_services() {
     sudo launchctl stop system/com.apple.softwareupdated >/dev/null 2>&1
     sleep 1
     sudo launchctl start system/com.apple.softwareupdated >/dev/null 2>&1
+    
+    # 确保通知服务刷新
+    sudo killall -9 NotificationCenter 2>/dev/null
 }
 
 # -------------------------- 菜单系统 --------------------------
@@ -278,7 +321,7 @@ function system_action_menu() {
                 return
                 ;;
             *) 
-                printf "\033[31m无效选项，请重新输入\033[0m\n"
+                echo -e "${COLOR_RED}无效选项，请重新输入${COLOR_NC}"
                 ;;
         esac
         
@@ -313,40 +356,33 @@ function check_system_status() {
     # 检查更新计划状态
     local schedule_status=$(softwareupdate --schedule 2>&1)
     if [[ $schedule_status == *"off"* ]]; then
-        printf "\033[32m自动更新状态: 已禁用\033[0m\n"
+        echo -e "自动更新状态: ${COLOR_RED}已禁用${COLOR_NC}"
     else
-        printf "\033[31m自动更新状态: 已启用\033[0m\n"
+        echo -e "自动更新状态: ${COLOR_GREEN}已启用${COLOR_NC}"
     fi
     
-    # 检查关键域名状态
-    local all_blocked=true
+    # 检查服务器屏蔽状态
+    echo -n "服务器屏蔽状态: "
+    local all_active=true
     for domain in "${DEFAULT_DOMAIN_LIST[@]}"; do
         if ! grep -q "^127\.0\.0\.1[[:space:]]*$domain" /etc/hosts; then
-            all_blocked=false
+            all_active=false
             break
         fi
     done
     
-    if $all_blocked; then
-        printf "\033[32m服务器屏蔽状态: 已生效\033[0m\n"
+    if $all_active; then
+        echo -e "${COLOR_RED}已生效${COLOR_NC}"
     else
-        printf "\033[31m服务器屏蔽状态: 未生效\033[0m\n"
+        echo -e "${COLOR_GREEN}未生效${COLOR_NC}"
     fi
     
     # 检查软件更新服务状态
     local service_status=$(sudo launchctl list | grep com.apple.softwareupdated)
     if [[ -z "$service_status" ]]; then
-        printf "\033[32m软件更新服务状态: 未运行\033[0m\n"
+        echo -e "软件更新服务状态: ${COLOR_RED}未运行${COLOR_NC}"
     else
-        printf "\033[31m软件更新服务状态: 运行中\033[0m\n"
-    fi
-    
-    # 检查电源触发更新状态
-    local powernap_status=$(pmset -g | grep powernap | awk '{print $2}')
-    if [[ $powernap_status == "0" ]]; then
-        printf "\033[32m电源触发更新: 已禁用\033[0m\n"
-    else
-        printf "\033[31m电源触发更新: 已启用\033[0m\n"
+        echo -e "软件更新服务状态: ${COLOR_GREEN}运行中${COLOR_NC}"
     fi
     
     echo "------------------------------------------------------------"
@@ -357,7 +393,7 @@ function show_version_info() {
     echo "------------------------------------------------------------"
     echo "MacUpdateGuard v${SCRIPT_VERSION}"
     echo "作者: bili_25396444320"
-    echo "最后更新: 2025年7月13日"
+    echo "最后更新: 2025年7月16日"
     echo "------------------------------------------------------------"
 }
 
@@ -370,7 +406,7 @@ function graceful_exit() {
 }
 
 function handle_invalid_input() {
-    printf "\033[31m无效选项，请重新输入\033[0m\n"
+    echo -e "${COLOR_RED}无效选项，请重新输入${COLOR_NC}"
 }
 
 # ======================== 脚本启动入口 ========================
@@ -386,7 +422,7 @@ else
         echo "------------------------------------------------------------"
         exec sudo "$0"
     else
-        printf "\033[31m权限修复失败，请手动执行:\033[0m\n"
+        echo -e "${COLOR_RED}权限修复失败，请手动执行:${COLOR_NC}"
         echo "sudo chmod +x \"$0\""
         echo "sudo \"$0\""
         exit 1
