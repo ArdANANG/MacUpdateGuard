@@ -1,21 +1,20 @@
 #!/bin/bash
 # ========================================================================
-# MacUpdateGuard v4.0
+# MacUpdateGuard v4.1
 # 作者: bili_25396444320 (c) 2025
 # 功能：macOS系统更新管理工具
-# 优化版：2025年7月17日
+# 优化版：2025年7月18日
 # ========================================================================
 
 # -------------------------- 全局配置 ---------------------------
-readonly SCRIPT_VERSION="4.0"
+readonly SCRIPT_VERSION="4.1"
 readonly DEFAULT_DOMAIN_LIST=(
     "swscan.apple.com"
     "mesu.apple.com"
     "swdist.apple.com"
     "swcdn.apple.com"
     "gdmf.apple.com"
-    "appldnld.apple.com"
-    "ioshost.qtlcdn.com"
+    "xp.apple.com"
 )
 
 # 颜色定义
@@ -393,7 +392,7 @@ function show_version_info() {
     echo "------------------------------------------------------------"
     echo "MacUpdateGuard v${SCRIPT_VERSION}"
     echo "作者: bili_25396444320"
-    echo "最后更新: 2025年7月17日"
+    echo "最后更新: 2025年7月18日"
     echo "------------------------------------------------------------"
 }
 
