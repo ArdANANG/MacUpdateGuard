@@ -91,7 +91,7 @@ cd ~ && curl -fsSL -o MacUpdateGuard.sh https://raw.githubusercontent.com/ArdANA
 
 **App 用户**：下载新 DMG → 打开 → 把新 App 拖入「应用程序」→ 提示「已存在同名文件」时点**替换**即可，无需先卸载。
 
-## 不会用终端？照这个来
+## 手动安装
 
 1. 打开「终端」（Launchpad → 其他 → 终端）
 2. 复制下面**这一整行**，粘贴进去，按回车：
