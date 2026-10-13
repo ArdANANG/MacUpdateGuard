@@ -1,12 +1,12 @@
 #!/bin/bash
-# MacUpdateGuard v4.9 - macOS 系统更新管理工具
+# MacUpdateGuard v4.9.1 - macOS 系统更新管理工具
 # 作者: bili_25396444320 (c) 2026
 # 屏蔽/恢复系统更新、清除小红点、VPN(Clash)配置屏蔽
 # 兼容 macOS 10.13+ (Intel / Apple Silicon)
 # 用法: sudo ./MacUpdateGuard.sh  或  MacUpdateGuard.sh [disable|restore|vpn|unvpn|clearbadge|status|version|help]
 
 # -------------------------- 全局配置 ---------------------------
-readonly SCRIPT_VERSION="4.9"
+readonly SCRIPT_VERSION="4.9.1"
 readonly DEFAULT_DOMAIN_LIST=(
     "swscan.apple.com"
     "mesu.apple.com"
@@ -394,6 +394,9 @@ function execute_disable_actions() {
 
     echo "停止更新服务..."
     sudo launchctl disable system/com.apple.softwareupdated >/dev/null 2>&1
+    # v4.9.1: bootout 直接终结运行中的守护进程，无需等重启；
+    #         对不支持 bootout 的旧系统回退到 stop
+    sudo launchctl bootout system/com.apple.softwareupdated >/dev/null 2>&1
     sudo launchctl stop system/com.apple.softwareupdated >/dev/null 2>&1
     sudo launchctl unload -w /System/Library/LaunchDaemons/com.apple.softwareupdated.plist >/dev/null 2>&1
 
@@ -644,6 +647,20 @@ function show_main_menu() {
     echo ""
 }
 
+# v4.9.1: softwareupdated 服务状态双检测（均无需 root，普通权限即可）
+# 背景: /var/db/com.apple.xpc.launchd/disabled.plist 可能被系统重写，
+#       导致 launchctl disable 的条目静默丢失、更新服务复活弹窗，
+#       而旧版检测完全查不到这种失效。
+# 检测1: 服务是否在 launchd 系统禁用名单中
+function su_daemon_disabled() {
+    launchctl print-disabled system 2>/dev/null | grep -q '"com.apple.softwareupdated" => disabled'
+}
+
+# 检测2: 服务进程当前是否正在运行（不依赖 sudo launchctl list / ps）
+function su_daemon_running() {
+    launchctl print system/com.apple.softwareupdated 2>/dev/null | grep -q "state = running"
+}
+
 function check_system_status() {
     echo "系统更新状态检查:"
     echo "------------------------------------------------------------"
@@ -687,11 +704,23 @@ function check_system_status() {
     fi
 
     # 检查软件更新服务状态
-    local service_status=$(sudo launchctl list 2>/dev/null | grep com.apple.softwareupdated)
-    if [[ -z "$service_status" ]]; then
-        echo -e "软件更新服务状态: ${COLOR_RED}未运行${COLOR_NC}"
+    # v4.9.1: 旧版用 `sudo launchctl list | grep` 判断，存在两个问题——
+    #   1) 查不到 launchd 禁用标记（禁用条目被系统重写丢失时，hosts/开关全正常、
+    #      服务却已复活并继续弹更新通知，状态页显示一切正常）
+    #   2) sudo 在 GUI/无终端环境下可能静默失败，导致恒报「未运行」
+    # 现改为「禁用名单 + 运行状态」双检测，普通权限即可。
+    local svc_disabled=false svc_running=false
+    su_daemon_disabled && svc_disabled=true
+    su_daemon_running && svc_running=true
+    if $svc_disabled && ! $svc_running; then
+        echo -e "软件更新服务状态: ${COLOR_RED}已禁用（未运行）${COLOR_NC}"
+        echo "MGU_SVC=DISABLED"
+    elif $svc_disabled && $svc_running; then
+        echo -e "软件更新服务状态: ${COLOR_YELLOW}已禁用，但进程未退出（重启后彻底停止）${COLOR_NC}"
+        echo "MGU_SVC=DISABLED_RUNNING"
     else
-        echo -e "软件更新服务状态: ${COLOR_GREEN}运行中${COLOR_NC}"
+        echo -e "软件更新服务状态: ${COLOR_GREEN}未禁用${COLOR_NC}"
+        echo "MGU_SVC=ENABLED"
     fi
 
     # 检查小红点标记状态
@@ -735,7 +764,7 @@ function show_version_info() {
     echo "------------------------------------------------------------"
     echo "MacUpdateGuard v${SCRIPT_VERSION}"
     echo "作者: bili_25396444320"
-    echo "最后更新: 2026年10月2日"
+    echo "最后更新: 2026年10月13日"
     echo "------------------------------------------------------------"
 }
 
@@ -753,6 +782,12 @@ function verify_disable_effect() {
     auto_check=$(defaults read /Library/Preferences/com.apple.SoftwareUpdate.plist AutomaticCheckEnabled 2>/dev/null)
     if [[ "$auto_check" != "0" ]]; then
         echo "校验失败: AutomaticCheckEnabled 未关闭 (当前值: ${auto_check:-未设置})" >&2
+        ok=false
+    fi
+    # v4.9.1: launchd 禁用名单校验 —— launchctl disable 可能静默失败，
+    #         或系统重写禁用数据库后条目丢失，导致更新服务复活并继续弹窗
+    if ! su_daemon_disabled; then
+        echo "校验失败: softwareupdated 未进入 launchd 禁用名单 (可能被系统重置)" >&2
         ok=false
     fi
     $ok
